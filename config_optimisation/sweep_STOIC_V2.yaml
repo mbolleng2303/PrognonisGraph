@@ -1,0 +1,36 @@
+program: main_STOIC_V2.py
+project : PrognosisGraphV2
+name : Optimisation
+method: bayes
+command:
+  - C:\Users\maxim\PycharmProjects\PrognosisGraph\venv\Scripts\python.exe
+  - ${program}
+  - ${args}
+metric:
+  goal: maximize
+  name: avg_val_acc
+parameters:
+  L:
+    value: 2
+  init_lr:
+    values: [0.001, 0.0005, 0.0001]
+  weight_decay:
+    values: [0.1, 0.2, 0.3]
+  feature_dim:
+    values: [128, 256, 512, 1024, 2048]
+  lr_schedule_patience:
+    values: [3, 5, 7]
+  dropout:
+    distribution: uniform
+    min: 0.00
+    max: 1.0
+  in_feat_dropout:
+    distribution: uniform
+    min: 0.00
+    max: 1.0
+  n_transformers:
+    values: [1,2,4,6,8,10,12,14,16,32,64]
+  n_heads:
+    values: [ 1,2,4,8,16,32]
+  edge_feat:
+    values: [true, false]

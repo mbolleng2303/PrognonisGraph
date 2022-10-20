@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from layers.SIMNet import SIMNet
 import dgl
 
 """
@@ -27,7 +27,10 @@ class GraphSageNet(nn.Module):
         hidden_dim = net_params['hidden_dim']
         out_dim = net_params['out_dim']
         n_classes = 2
-        self.layer_type = 'edge'
+        if net_params['edge_feat']:
+            self.layer_type = 'edge'
+        else:
+            self.layer_type = 'node'
         in_feat_dropout = net_params['in_feat_dropout']
         dropout = net_params['dropout']
         aggregator_type = net_params['sage_aggregator']
@@ -48,13 +51,44 @@ class GraphSageNet(nn.Module):
                                      range(n_layers - 1)])
         self.layers.append(GraphSageLayer(hidden_dim, out_dim, F.relu, dropout, aggregator_type, batch_norm, residual))
         self.MLP_layer = MLPReadout(out_dim, n_classes)
-        if tresh is not None :
-            self.preprocessor = Preprocessing(tresh=tresh)
+        if self.tresh['exp'] == 'SIMNet':
+            global current_split
+            split_number = current_split
+            #self.preprocessor = SIMNet()
+            out_dir = 'C:/Users/maxim/PycharmProjects/PrognosisGraph/out/'
+            log_dir = out_dir + 'logs/'
+            version = "SIMNet_1"
+            last_epoch = [99, 0, 0, 1]
+            root_ckpt_dir = out_dir + 'checkpoints/' + version
+            check_point_dir = root_ckpt_dir + '/RUN_' + str(split_number) + '/' + '{}.pkl'.format(
+                "epoch_" + str(last_epoch[split_number]))
+            check_pt = torch.load(check_point_dir)
+            self.preprocessor = SIMNet()
+            self.preprocessor.load_state_dict(check_pt)
+        elif tresh['exp'] != 'fully_connected':
+            self.preprocessor = Preprocessing(tresh=tresh, split_number=net_params["split_num"])
 
     def forward(self, g):
         # input embedding
-        #g = self.preprocessor(g)
-        # e = g.edata['dist']
+        if self.tresh['exp'] == 'SIMNet':
+            """g = self.preprocessor(g)"""
+            g.edata['similarity'] = self.preprocessor(g)
+            mask = torch.arange(g.number_of_edges())[torch.logical_not(torch.squeeze(g.edata['similarity'].argmax(dim=1))).bool()]
+            # transform = RemoveSelfLoop()
+            g = dgl.remove_edges(g, mask)
+            #g = dgl.sampling.select_topk(g, 100, 'similarity')
+            #e = g.edata['similarity'][:, 1].float()
+
+            #g = dgl.sampling.select_topk(g, 40, 'similarity')
+            #e = g.edata['similarity'].float()
+        elif self.tresh['exp'] != 'fully_connected':
+            g = self.preprocessor(g)
+            e = g.edata['similarity'].float()
+            #g = dgl.sampling.select_topk(g, 50, 'feat')
+        else:
+            g = dgl.sampling.sample_neighbors(g, list(range(0, g.ndata['feat'].size()[0])), 40)
+            #e = g.edata['feat'].float()
+
         #torch.set_default_dtype(torch.float64)
         #g = dgl.sampling.sample_neighbors(g, list(range(0, g.ndata['feat'].size()[0])), 30)
         #g = dgl.khop_graph(g, 1)
@@ -69,10 +103,10 @@ class GraphSageNet(nn.Module):
         # graphsage
         #g.ndata['h'] = h
         #g.edata['e'] = e
-        if self.layer_type != 'edge':
+        if self.layer_type == 'edge':
 
             for conv in self.layers:
-                h = conv(g, h)
+                h = conv(g, h, e)
 
             # output
             h_out = self.MLP_layer(h)

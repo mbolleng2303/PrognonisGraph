@@ -40,7 +40,7 @@ def train_epoch_sparse(model, optimizer, device, data_loader, epoch):
             batch_pos_enc = batch_pos_enc * sign_flip.unsqueeze(0)
             batch_scores = model.forward(batch_graphs, batch_pos_enc)
         except:
-            batch_scores = model.forward(batch_graphs)
+            batch_scores, A = model.forward(batch_graphs)
         scores_severity = []
         labels_lst = []
         for i in range(len(batch_scores)):
@@ -53,7 +53,7 @@ def train_epoch_sparse(model, optimizer, device, data_loader, epoch):
                 scores_severity = np.concatenate((scores_severity, np.expand_dims(np.array(score_value), axis=0)),
                                                  axis=0)
                 labels_lst = np.concatenate((labels_lst, np.expand_dims(np.array(lab_value), axis=0)), axis=0)
-        loss = model.loss(batch_scores, batch_labels)
+        loss, comb_loss = model.loss(batch_scores, batch_labels)
         loss.backward()
         optimizer.step()
         epoch_loss += loss.detach().item()
@@ -61,7 +61,7 @@ def train_epoch_sparse(model, optimizer, device, data_loader, epoch):
     epoch_loss /= (iter + 1)
     epoch_train_acc /= (iter + 1)
 
-    return epoch_loss, epoch_train_acc, optimizer
+    return epoch_loss, epoch_train_acc, optimizer, comb_loss, A
 
 
 def evaluate_network_sparse(model, device, data_loader, epoch, infer = False, infer5=False):
@@ -78,7 +78,7 @@ def evaluate_network_sparse(model, device, data_loader, epoch, infer = False, in
                 batch_pos_enc = batch_graphs.ndata['pos_enc'].to(device)
                 batch_scores = model.forward(batch_graphs, batch_pos_enc)
             except:
-                batch_scores = model.forward(batch_graphs)
+                batch_scores, A = model.forward(batch_graphs)
             scores_severity = []
             labels_lst = []
             for i in range(len(batch_scores)):
@@ -91,12 +91,12 @@ def evaluate_network_sparse(model, device, data_loader, epoch, infer = False, in
                     scores_severity = np.concatenate((scores_severity, np.expand_dims(np.array(score_value), axis=0)),
                                                      axis=0)
                     labels_lst = np.concatenate((labels_lst, np.expand_dims(np.array(lab_value), axis=0)), axis=0)
-            loss = model.loss(batch_scores, batch_labels)
+            loss, comb_loss = model.loss(batch_scores, batch_labels)
             epoch_test_loss += loss.detach().item()
             epoch_test_acc += compute_roc_auc(labels=labels_lst, prediction=scores_severity)
         epoch_test_loss /= (iter + 1)
         epoch_test_acc /= (iter + 1)
 
-    return epoch_test_loss, epoch_test_acc
+    return epoch_test_loss, epoch_test_acc, comb_loss, A
 
 

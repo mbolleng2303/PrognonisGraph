@@ -4,37 +4,38 @@
         "id": 0
     },
 
-    "model": "SIMNet",
-    "dataset": "PreGraph",
+    "model": "STOIC_V2",
+    "dataset": "SBU",
 
     "out_dir": "C:/Users/maxim/PycharmProjects/PrognosisGraph/out/",
 
     "params": {
         "seed": 41,
-        "epochs": 1000,
+        "epochs": 100,
         "batch_size": 1,
         "init_lr": 0.001,
         "lr_reduce_factor": 0.5,
-        "lr_schedule_patience": 3,
-        "min_lr": 1e-5,
-        "weight_decay": 0.0,
+        "lr_schedule_patience": 10,
+        "min_lr": 1e-7,
+        "weight_decay": 0.1,
         "print_epoch_interval": 5,
         "max_time": 12,
         "cross_val": true,
-        "split_num": 0,
-        "threshold_value" : 0.6
+        "split_num": 0
     },
-
     "net_params": {
-        "L": 3,
-        "hidden_dim": 512,
-        "out_dim": 256,
+        "L": 2,
+        "n_transformers" : 4,
+        "n_heads" : 4,
+        "cls_token": true,
+        "feature_dim": 256,
+        "similarity_dim": 128,
+        "mlp_dim": 256,
         "residual": true,
-        "readout": "mean",
         "in_feat_dropout": 0,
-        "dropout": 0,
-        "batch_norm": false,
+        "dropout": 0.3,
+        "batch_norm": true,
         "sage_aggregator": "mean",
-        "self_loop": false
+        "edge_feat": true
     }
 }

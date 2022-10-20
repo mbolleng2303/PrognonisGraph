@@ -53,7 +53,7 @@ class GraphSageLayer(nn.Module):
         if self.batch_norm:
             self.batchnorm_h = nn.BatchNorm1d(out_feats)
 
-    def forward(self, g, h , e = None):
+    def forward(self, g, h, e=None):
         h_in = h  # for residual connection
 
         if self.dgl_builtin == False:

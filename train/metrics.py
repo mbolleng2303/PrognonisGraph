@@ -38,11 +38,16 @@ def MAE(scores, targets):
 
 
 def accuracy(scores, targets):
-    scores = scores.detach().argmax(dim=1)
-    tn, fp, fn, tp = confusion_matrix(targets,scores).ravel()
-    print(confusion_matrix(targets,scores))
-    acc = tn/(tn+fn)#(scores == targets).float().sum().item()/targets.size(0)
-    return acc#average_precision_score(targets, scores)
+    """scores = scores.detach().argmax(dim=1)
+    tn, fp, fn, tp = confusion_matrix(targets,scores).ravel()"""
+    #targets=(targets*2)-1
+    #print(confusion_matrix(targets,scores))
+    acc = (scores == targets).float().sum().item()/targets.size(0)#tn/(tn+fn)#tp/(tp+tn+fp)#
+    neg = targets == 0
+    pos = targets == 1
+    #scores = scores[torch.squeeze(neg)]
+    acc = torch.mean(scores[pos]).detach().numpy()-torch.std(scores[pos]).detach().numpy() - torch.mean(scores[neg]).detach().numpy()-torch.std(scores[neg]).detach().numpy()
+    return  acc#/scores.size(0)#tn/(tn+fn)#acc#tn/(tn+fn) #average_precision_score(targets, scores)
 
 
 def accuracy_MNIST_CIFAR(scores, targets):
