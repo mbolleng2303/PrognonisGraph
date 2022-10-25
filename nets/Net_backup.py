@@ -13,7 +13,6 @@ from Abel.tab_transformer_pytorch import TabTransformer
 from Abel.vit import ViT
 from train.train_STOIC import compute_roc_auc
 
-
 class Hyper(torch.nn.Module):
     def __init__(self, epsilon=1e-7):
         super().__init__()
@@ -28,9 +27,8 @@ class Hyper(torch.nn.Module):
         return torch.log(x + z)
 
     def forward(self, src, dst):
+
         return self.dist(src, dst)
-
-
 def focal_loss(bce_loss, targets, gamma, alpha):
     """Binary focal loss, mean.
 
@@ -60,8 +58,8 @@ class SBU_net(nn.Module):
     def __init__(self, net_params, tresh=None):
         super().__init__()
         unique_cat = tuple(np.squeeze(pd.read_csv('info.csv', index_col=0).values, axis=1))
-        img_size = 64
-        dim = 8
+        img_size = 32
+        dim = 32
         info = pd.read_csv('info2.csv', index_col=0)
         self.num_cont = int(info['numerical_len'].values[0])
         self.num_cat = int(info['categorical_len'].values[0])
@@ -84,24 +82,23 @@ class SBU_net(nn.Module):
         self.net_params = net_params
         self.n_classes = n_classes
         self.device = net_params['device']
-        self.tab_transformer = TabTransformer(categories = unique_cat,      # tuple containing the number of unique values within each category
+        """self.tab_transformer = TabTransformer(categories = unique_cat,      # tuple containing the number of unique values within each category
                                                 num_continuous = self.num_cont,                # number of continuous values
                                                 dim = dim,                          # dimension, paper set at 32 this is just a test with 256
                                                 dim_out = 2,                        # binary prediction, but could be anything
                                                 depth = 6,                          # depth, paper recommended 6
                                                 heads = 8,                          # heads, paper recommends 8
-                                                patch_size= 16,                     #like vit paper
+                                                patch_size= 8,                     #ike vit paper
                                                 image_size= img_size,
-                                                attn_dropout = 0.1,                 # post-attention dropout
-                                                ff_dropout = 0.1,                   # feed forward dropout
+                                                attn_dropout = 0.0,                 # post-attention dropout
+                                                ff_dropout = 0.0,                   # feed forward dropout
                                                 mlp_hidden_mults = (2, 2),          # relative multiples of each hidden dimension of the last mlp to logits
-                                                mlp_act = nn.GELU())
+                                                mlp_act = nn.GELU())"""
         #self.norm_img = nn.LayerNorm(feature_dim)
         self.project_sim = nn.Linear(feature_dim, similarity_dim)#, bias=False
         #self.embedding_dist = nn.Linear(1, 1)
         self.embedding_e = nn.Linear(1, feature_dim)
-        self.in_feat_dropout = nn.Dropout(0)
-        self.k = in_feat_dropout
+        self.in_feat_dropout = nn.Dropout(in_feat_dropout)
         self.layers = nn.ModuleList([GraphSageLayer(feature_dim, feature_dim, F.relu,
                                                     dropout, aggregator_type, batch_norm, residual) for _ in
                                      range(n_layers - 1)])
@@ -109,18 +106,17 @@ class SBU_net(nn.Module):
         self.MLP_layer = MLPReadout(feature_dim, n_classes)
         #self.MLP_layer_int = MLPReadout(feature_dim, n_classes)
         #self.norm_feat = nn.LayerNorm(feature_dim)
-        #self.norm_sim = nn.LayerNorm(67*67)#nn.Linear(1, 1)
+        self.norm_sim = nn.LayerNorm(67*67)#nn.Linear(1, 1)
         #self.norm_dist = nn.LayerNorm(400*400)
-        self.shift_dist = nn.Linear(1,1)
-        self.norm_img = nn.LayerNorm([img_size, img_size])
+        """self.norm_img = nn.LayerNorm([img_size, img_size])
         self.batch_norm_img = nn.BatchNorm2d(1)
-        self.batch_norm_cont = nn.BatchNorm1d(self.num_cont)
+        self.batch_norm_cont = nn.BatchNorm1d(self.num_cont)"""
         self.to_tsne = []
-        self.pred_e = EdgePredictor('cos', similarity_dim, out_feats=1)
+        #self.pred_e = EdgePredictor('cos', similarity_dim, out_feats=1)
         self.hyper = Hyper()
 
 
-    def transformer_forward(self, g):
+    """def transformer_forward(self, g):
         x_categ = g.ndata['ehr'][:, self.num_cont:].long()  # category values, from 0 - max number of categories, in the order as passed into the constructor above
         x_cont = self.batch_norm_cont(g.ndata['ehr'][:, 0:self.num_cont].float())  # assume continuous values are already normalized individually
         x_image = self.batch_norm_img(g.ndata['img'].float())  #  g.ndata['img']# assume a gray level (1-channel) image of 256 \times 256 for example this can be the x-ray
@@ -128,7 +124,7 @@ class SBU_net(nn.Module):
         self.score_int = F.softmax(pred, dim=1)
         # print("Time taken: {:.4f}s".format(time.time() - t0))
 
-        return encoding.detach(), pred
+        return encoding.detach(), pred"""
 
     def apply_edge_processing(self, g):
         g.apply_edges(func=self.calc_dist)
@@ -141,6 +137,9 @@ class SBU_net(nn.Module):
 
     def calc_dist(self, edges):
         cosine = nn.CosineSimilarity(dim=1, eps=1e-6)
+        """age_inter = torch.ones(edges.dst['Age'].size(0)) * 5
+        age_diff = abs(edges.dst['Age'] - edges.src['Age'])
+        age_sim = (age_diff <= age_inter).float()"""
         #torch.unsqueeze(age_sim, dim=1).float()
         self.Pi = edges.dst['h']
         self.Pj = edges.src['h']
@@ -148,18 +147,18 @@ class SBU_net(nn.Module):
         self.elab = torch.unsqueeze(torch.logical_xor(edges.dst['label'], edges.src['label']), dim =1).long()
         #sim = torch.relu(cosine(torch.relu(edges.src['h']*self.param_vec), torch.relu(edges.dst['h']), dim =1))
         #mask = self.sim <= 0.5
-        return {'similarity': self.sim, 'label': self.elab}#, 'mask': mask}  # , 'mask': mask
+        return {'similarity': self.sim, 'label': self.elab}#, 'mask': mask}  # , 'mask': mask"""
 
     def representation_learning(self, encoded_feat, g):
         self.feat_sim = self.project_sim(encoded_feat)
-
+        self.to_tsne.append(self.feat_sim.cpu().detach().numpy())
         g.ndata['h'] = self.feat_sim
         # Graph representation learning
         g = self.apply_edge_processing(g)
-        g = dgl.remove_self_loop(g)
-        """g = dgl.sampling.select_topk(g.to('cpu'), int(self.k), 'similarity', output_device=self.device, ascending=False)
+
+        g = dgl.sampling.select_topk(g.to('cpu'), 10, 'similarity', output_device=self.device, ascending=False)
         self.sim_smp = g.edata['similarity']
-        self.elab_smp = g.edata['label']"""
+        self.elab_smp = g.ndata['label']
         e = g.edata['similarity'].expand(-1, encoded_feat.size(1))
         return g, e
 
@@ -169,7 +168,6 @@ class SBU_net(nn.Module):
             for conv in self.layers:
                 h = conv(g, h)
             # output
-            self.to_tsne.append(h.cpu().detach().numpy())
             self.h_out = self.MLP_layer(h)
             return self.h_out
         else:
@@ -177,14 +175,13 @@ class SBU_net(nn.Module):
             for conv in self.layers:
                 h = conv(g, h, e)
             # output
-            self.to_tsne.append(h.cpu().detach().numpy())
             h_out = self.MLP_layer(h)
             return h_out
 
     def forward(self, g):
         # Embedding multi-modal feature
         self.to_tsne = []
-        encoded_feat, pred =self.transformer_forward(g)
+        encoded_feat = g.ndata['feat']#self.transformer_forward(g)
         #DF = pd.DataFrame(encoded_feat.detach().numpy())
         #DF.to_csv("extract_feat.csv")
         extracted_feat = encoded_feat.clone().detach() #torch.tensor(np.array(pd.read_csv("extract_feat.csv"))[:,1:])
@@ -196,7 +193,7 @@ class SBU_net(nn.Module):
         return self.out, self.A.cpu(), self.to_tsne  #self.A.cpu()#encoded_feat#None#self.A
 
     def loss(self, pred, label):
-        #self.to_tsne.append(label.cpu().detach().numpy())
+        """#self.to_tsne.append(label.cpu().detach().numpy())
         scores_severity = []
         labels_lst = []
         batch_scores = self.score_int
@@ -212,7 +209,7 @@ class SBU_net(nn.Module):
                                                  axis=0)
                 labels_lst = np.concatenate((labels_lst, np.expand_dims(np.array(lab_value), axis=0)), axis=0)
 
-        tr_acc = compute_roc_auc(labels=labels_lst, prediction=scores_severity)
+        tr_acc = compute_roc_auc(labels=labels_lst, prediction=scores_severity)"""
         scores_severity = []
         labels_lst = []
         batch_scores = self.out
@@ -230,6 +227,7 @@ class SBU_net(nn.Module):
 
         gnn_acc = compute_roc_auc(labels=labels_lst, prediction=scores_severity)
 
+        tr_acc = gnn_acc
 
         # weighted cross-entropy for unbalanced classes
         V = label.size(0)
@@ -243,10 +241,13 @@ class SBU_net(nn.Module):
         # class losss
         criterion = torch.nn.CrossEntropyLoss(weight=weight.to(self.device))#.to(self.device)weight=torch.tensor([0.14, 0.86]).to(self.device)weight=weight.to(self.device)
         loss_gnn = criterion(self.out.float(), label.float())#torch.tensor(0)#"""
-        criterion1 = torch.nn.CrossEntropyLoss(weight=weight.to(self.device))
-        loss_tr = criterion1(self.score_int.float(), label.float())#.long() #.argmax(dim=1))
+        """criterion1 = torch.nn.CrossEntropyLoss(weight=weight.to(self.device))
+        loss_tr = criterion1(self.score_int.float(), label.float())#.long() #.argmax(dim=1))"""
+        loss_tr = loss_gnn
         #loss_focal = focal_loss(loss_bce, label, 10, 0.14)
         #loss_tr = loss_bce#loss_focal
+
+
         #adjacency losss
         N = self.A.size(0)
         d = torch.sum(self.A, dim=1)
@@ -256,39 +257,39 @@ class SBU_net(nn.Module):
         laplacian = torch.matmul(self.feat_sim.t(),
                      torch.matmul(L, self.feat_sim))
         n = self.feat_sim.size(1)
-        loss_smooth = smooth(laplacian, torch.zeros_like(laplacian))# torch.tensor(0)#
+        loss_smooth = torch.tensor(0)#smooth(laplacian, torch.zeros_like(laplacian))# torch.tensor(0)#
 
         sparsity = nn.L1Loss()
         loss_sparsity = sparsity(self.A, torch.zeros_like(self.A)) #torch.tensor(0)#
 
         one = torch.ones(N, 1).to(self.device)
-        loss_connectivity = -torch.matmul(one.t(), torch.log(torch.matmul(self.A, one)/N))/N#
+        loss_connectivity = -torch.matmul(one.t(), torch.log(torch.matmul(self.A, one)/N))/N#torch.tensor(0)#
         lambda_1 = 0.8
         lambda_2 = 0.2
         lambda_3 = 0.
 
-        label = self.elab
+        """label = self.elab
         V = label.size(0)
-        label_count = torch.bincount(label.long()[:, 0])
+        label_count = torch.bincount(label.long()[:,0])
         label_count = label_count[torch.nonzero(label_count, as_tuple=False)].squeeze()
         cluster_sizes = torch.zeros(self.n_classes).long().to(self.device)
         cluster_sizes[torch.unique(label)] = label_count
         weight = (V - cluster_sizes).float() / V
         weight *= (cluster_sizes > 0).float()
-
-        # class losss
-        """criterion3 = torch.nn.BCELoss(weight=weight.to(
+        """
+        """# class losss
+        criterion3 = torch.nn.BCELoss(weight=weight.to(
             self.device))  # .to(self.device)weight=torch.tensor([0.14, 0.86]).to(self.device)weight=weight.to(self.device)
         loss_grl = criterion3(torch.concat((1-self.sim, self.sim), dim=1), torch.concat((1-label, label), dim=1).float())"""
 
         cosine_sim = nn.CosineEmbeddingLoss(margin=0)
-        L2_loss = nn.MSELoss()
-        contrast = L2_loss(self.sim, self.elab.float())  #cosine_sim(self.Pi, self.Pj, self.elab[:, 0])#
+        L2_loss = nn.L1Loss()
+        contrast = L2_loss(self.sim, self.elab.float())  #cosine_sim(self.Pi, self.Pj, 2*self.elab-1)
         loss_grl = contrast# lambda_1*loss_sparsity #+ lambda_3*loss_smooth #+ lambda_2*loss_connectivity
 
-        """contrast1 = L2_loss(self.sim_smp, self.elab_smp.float())
-        loss_connectivity =contrast1"""
-        """label = self.elab[:, 0]
+        contrast1 = L2_loss(self.sim_smp, self.elab_smp.float())
+        loss_connectivity =contrast1
+        label = self.elab[:, 0]
         V = label.size(0)
         label_count = torch.bincount(label.long())
         label_count = label_count[torch.nonzero(label_count, as_tuple=False)].squeeze()
@@ -298,9 +299,6 @@ class SBU_net(nn.Module):
         weight *= (cluster_sizes > 0).float()
         m = 1
         dist_loss = torch.sum(((1-label)/cluster_sizes[0])* symmetric_mse_loss(self.Pi, self.Pj)+(label)*(1/cluster_sizes[1])*torch.maximum(torch.zeros_like(label), m-symmetric_mse_loss(self.Pi, self.Pj)))
-        criterion = nn.CosineEmbeddingLoss(margin=0.5)
-        label = 2 * label - 1
-        dist_loss = criterion(self.Pi, self.Pj, self.elab[:,0])"""
         comb_loss = {'smooth': loss_smooth.cpu().detach().numpy(),
                      'sparsity': loss_sparsity.cpu().detach().numpy(),
                      'connectivity': loss_connectivity.cpu().detach().numpy(),
@@ -310,5 +308,5 @@ class SBU_net(nn.Module):
                      'tr_acc': tr_acc,
                      'gnn_acc': gnn_acc}
         lambda_4 = 1
-        return loss_tr + loss_gnn , comb_loss#+ loss_gnn + lambda_4*loss_grl
+        return loss_gnn + loss_connectivity + dist_loss, comb_loss#+ loss_gnn + lambda_4*loss_grl
 

@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import dgl.function as fn
-from dgl.nn.pytorch import SAGEConv
+from dgl.nn.pytorch import SAGEConv, GATConv, EGATConv, DotGatConv, EdgeConv, GATv2Conv
 
 import warnings
 warnings.filterwarnings('ignore', '.*User provided device_type of \'cuda\', but CUDA is not available. Disabling.*', )
@@ -47,8 +47,11 @@ class GraphSageLayer(nn.Module):
             else:
                 self.aggregator = MeanAggregator()
         else:
-            self.sageconv = SAGEConv(in_feats, out_feats, aggregator_type,
-                                     dropout, activation=activation)
+            self.sageconv = SAGEConv(in_feats, out_feats, aggregator_type, dropout, activation=activation)
+            #self.sageconv = EdgeConv(in_feats, out_feats)
+            #self.sageconv = GATv2Conv(in_feats, out_feats, 4)
+            #self.sageconv = EGATConv(in_feats, 1, out_feats, 1, 4)
+
 
         if self.batch_norm:
             self.batchnorm_h = nn.BatchNorm1d(out_feats)
@@ -80,6 +83,8 @@ class GraphSageLayer(nn.Module):
             else:
                 h = self.sageconv(g, h)
 
+        """h = torch.mean(h, dim = 1)
+        e = torch.mean(e, dim=1)"""
         if self.batch_norm:
             h = self.batchnorm_h(h)
 

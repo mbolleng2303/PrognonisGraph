@@ -9,8 +9,11 @@ from nets.STOIC.EdgePredict import EdgePredict
 from nets.STOIC.GATNet import GATNet
 from layers.SIMNet import SIMNet
 from nets.STOIC.STOIC_V2_net import STOIC_V2
-def GraphSage(net_params, tresh=None):
+from nets.SBU.SBU_net import SBU_net
 
+def sbu(net_params, tresh = None):
+    return SBU_net(net_params, tresh = None)
+def GraphSage(net_params, tresh=None):
     return GraphSageNet(net_params, tresh)
 def gatnet(net_params, tresh=None) :
     return GATNet(net_params, tresh)
@@ -25,6 +28,7 @@ def gnn_model(MODEL_NAME, net_params, tresh=None):
         'GraphSage': GraphSage,
         'EdgePredict' : EdgePredict,
         'SIMNet' : simnet,
-        'STOIC_V2' : stoic_v2}
+        'STOIC_V2' : stoic_v2,
+        'SBU': sbu}
 
     return models[MODEL_NAME](net_params, tresh)

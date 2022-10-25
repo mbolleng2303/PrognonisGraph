@@ -1,3 +1,4 @@
+import csv
 import os
 import pickle
 import time
@@ -58,13 +59,13 @@ def get_all_split_idx(dataset):
         - Preparing 5 such combinations of indexes split to be used in Graph NNs
         - As with KFold, each of the 5 fold have unique test set.
     """
-    root_idx_dir = os.getcwd() + '/data/STOIC/split/'
+    root_idx_dir = './data/STOIC/split/'
     if not os.path.exists(root_idx_dir):
         os.makedirs(root_idx_dir)
     all_idx = {}
 
     # If there are no idx files, do the split and store the files
-    if not (os.path.exists(root_idx_dir + 'train.csv')):
+    if not (os.path.exists(root_idx_dir  + '_train.index')):
         print("[!] Splitting the data into train/val/test ...")
 
         # Using 5-fold cross val as used in RP-GNN paper
@@ -77,13 +78,8 @@ def get_all_split_idx(dataset):
         for i in range(len(dataset.graph_lists)):
             dataset[i][0].a = lambda: None
             setattr(dataset[i][0].a, 'index', i)
-        a=np.random.rand(len(dataset.graph_lists))
-        for i in range (len(a)) :
-            a[i]= 1
-        f_train_w = []
-        f_val_w = []
-        f_test_w = []
-        for indexes in cross_val_fold.split(dataset.graph_lists, a):
+        label_lst = [dataset.label_lists[i].argmax(dim=1) for i in range(len(dataset.label_lists))]
+        for indexes in cross_val_fold.split(dataset.graph_lists, label_lst):
             remain_index, test_index = indexes[0], indexes[1]
 
             remain_set = format_dataset([dataset[index] for index in remain_index])
@@ -91,7 +87,9 @@ def get_all_split_idx(dataset):
             # Gets final 'train' and 'val'
             train, val, _, __ = train_test_split(remain_set,
                                                  range(len(remain_set.graph_lists)),
-                                                 test_size=0.25)
+                                                 test_size=0.25,
+                                                 stratify=remain_set.label_lists)
+
             train, val = format_dataset(train), format_dataset(val)
             test = format_dataset([dataset[index] for index in test_index])
 
@@ -99,30 +97,23 @@ def get_all_split_idx(dataset):
             idx_train = [item[0].a.index for item in train]
             idx_val = [item[0].a.index for item in val]
             idx_test = [item[0].a.index for item in test]
-            """
-            f_train_w = csv.writer(open(root_idx_dir + dataset.name + '_train.csv', 'a+'))
-            f_val_w = csv.writer(open(root_idx_dir + dataset.name + '_val.csv', 'a+'))
-            f_test_w = csv.writer(open(root_idx_dir + dataset.name + '_test.csv', 'a+'))
-""          """
-            f_train_w.append(idx_train)
-            f_val_w.append(idx_val)
-            f_test_w.append(idx_test)
 
+            f_train_w = csv.writer(open(root_idx_dir + dataset.name + '_train.index', 'a+'))
+            f_val_w = csv.writer(open(root_idx_dir + dataset.name + '_val.index', 'a+'))
+            f_test_w = csv.writer(open(root_idx_dir + dataset.name + '_test.index', 'a+'))
 
-        # reading idx from the files
-        f_train_w = np.array(f_train_w)
-        f_val_w = np.array(f_val_w)
-        f_test_w = np.array(f_test_w)
-        f_train_w.tofile(root_idx_dir +'train.csv', sep=',')
-        f_val_w.tofile(root_idx_dir +'val.csv', sep=',')
-        f_test_w.tofile(root_idx_dir +'test.csv', sep=',')
+            f_train_w.writerow(idx_train)
+            f_val_w.writerow(idx_val)
+            f_test_w.writerow(idx_test)
+
         print("[!] Splitting done!")
 
+    # reading idx from the files
     for section in ['train', 'val', 'test']:
-        all_idx[section] = np.reshape(np.loadtxt(root_idx_dir + section +".csv",
-                delimiter=",", dtype=int), (4, -1))
+        with open(root_idx_dir + '_' + section + '.index', 'r') as f:
+            reader = csv.reader(f)
+            all_idx[section] = [list(map(int, idx)) for idx in reader]
     return all_idx
-
 
 def self_loop(g):
     """
@@ -226,11 +217,11 @@ class Data2Graph(torch.utils.data.Dataset):
             A = np.ones((data.shape[0], data.shape[0]))
             edge = np.array(get_vertices(A)[0])
             edge_feat = np.array(get_vertices(A)[0])
-            for src, dst in edge:
+            """for src, dst in edge:
                 g.add_edges(src.item(), dst.item())
             edge_feat = np.array(edge_feat)
             g.edata['feat'] = torch.tensor(edge_feat).long()
-            # g = dgl.transform.remove_self_loop(g)
+            # g = dgl.transform.remove_self_loop(g)"""
             onehot = [0, 0]
             tmp = []
             for i in labels:
@@ -265,10 +256,10 @@ class Data2Graph(torch.utils.data.Dataset):
         A = np.ones((data.shape[0]*2, data.shape[0]*2))
         edge = np.array(get_vertices(A)[0])
         edge_feat = np.array(get_vertices(A)[0])
-        for src, dst in edge:
+        """for src, dst in edge:
             g.add_edges(src.item(), dst.item())
         edge_feat = np.array(edge_feat)
-        g.edata['feat'] = torch.tensor(edge_feat).long()
+        g.edata['feat'] = torch.tensor(edge_feat).long()"""
         # g = dgl.transform.remove_self_loop(g)
         onehot = [0, 0]
         tmp = []
@@ -291,34 +282,40 @@ def get_edge_labels(g):
         """feature = g.ndata['feat']
         age = g.ndata['age']
         sex = g.ndata['Sex']"""
-        graph = apply_edge_processing(g)
+        g = apply_edge_processing(g)
 
-        return graph.edata['dist']
+        return g.edata['dist']
 
 def apply_edge_processing(g):
-    graph = g.copy()
-    graph = encode(graph)
-    graph.apply_edges(func=calc_dist)
-    drop_eid = torch.arange(graph.number_of_edges())[torch.squeeze(graph.edata['mask'])]
-    graph = dgl.remove_edges(graph, drop_eid)
-    return graph
+
+    """graph = encode(graph)"""
+    g.apply_edges(func=calc_dist)
+    """drop_eid = torch.arange(graph.number_of_edges())[torch.squeeze(graph.edata['mask'])]
+    graph = dgl.remove_edges(graph, drop_eid)"""
+    return g
 
 def calc_dist(edges):# TODO: add node feature
     # vector = torch.reshape(torch.cat((edges.dst['age'], edges.dst['Sex'], edges.src['age'], edges.src['Sex'])), (4, -1)).t().float()
     # dist = self.method(vector)
-    dist = torch.sum(torch.reshape(torch.cat((edges.dst['Label'],  edges.src['Label'])), (2, -1)).t().float(),1)
-    zeros = torch.zeros(dist.size(0))
+
+    age_inter = torch.ones(edges.dst['Age'].size(0)) * 5
+    age_diff = abs(edges.dst['Age'] - edges.src['Age'])
+    age_sim = (age_diff <= age_inter).int()
+    sex_sim = torch.logical_not(torch.logical_xor(edges.dst['Sex'], edges.src['Sex']).int())
+
+    dist = torch.logical_not(torch.logical_xor(edges.dst['Label'], edges.src['Label']).int()).int()#torch.sum(torch.reshape(torch.cat((edges.dst['Label'],  edges.src['Label'])), (2, -1)).t().float(),1)
+    """zeros = torch.zeros(dist.size(0))
     ones = torch.ones(dist.size(0))
     twos = torch.ones(dist.size(0))*2
     res = dist.clone()
     res[dist == 0] = 2
     res[dist == 1] = 0
-    res = res/2
+    res = res/2"""
 
 
 
     mask = dist != dist
-    return {'dist': res, 'mask': mask}
+    return {'dist': dist, 'mask': mask}
 
 
 def encode(g):

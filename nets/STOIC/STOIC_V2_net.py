@@ -19,6 +19,22 @@ from layers.graphsage_layer import GraphSageLayer as GraphSageLayer
 from layers.mlp_readout_layer import MLPReadout
 from layers.preprocessing import Preprocessing
 from train.train_STOIC import  compute_roc_auc
+class Hyper(torch.nn.Module):
+    def __init__(self, epsilon=1e-7):
+        super().__init__()
+        self.epsilon = epsilon
+
+    def dist(self, u, v):
+        sqdist = torch.sum((u - v) ** 2, dim=-1)
+        squnorm = torch.sum(u ** 2, dim=-1)
+        sqvnorm = torch.sum(v ** 2, dim=-1)
+        x = 1 + 2 * sqdist / ((1 - squnorm) * (1 - sqvnorm)) + self.epsilon
+        z = torch.sqrt(x ** 2 - 1)
+        return torch.log(x + z)
+
+    def forward(self, src, dst):
+
+        return self.dist(src, dst)
 def _trunc_normal_(tensor, mean, std, a, b):
     # Cut & paste from PyTorch official master until it's in a few official releases - RW
     # Method based on https://people.sc.fsu.edu/~jburkardt/presentations/truncated_normal.pdf
@@ -139,6 +155,7 @@ class STOIC_V2(nn.Module):
         trunc_normal_(self.pos_embed, std=.02)
         self.param_vec = nn.Parameter(torch.zeros(1, feature_dim))
         nn.init.normal_(self.param_vec, std=1e-6)
+        self.hyper = Hyper()
 
     def transformer_forward(self, g):
         img = g.ndata['feat']
@@ -168,30 +185,33 @@ class STOIC_V2(nn.Module):
 
     def apply_edge_processing(self, g):
         g.apply_edges(func=self.calc_dist)
-        #mask = torch.arange(g.number_of_edges())[torch.squeeze(g.edata['mask'])]
+        # mask = torch.arange(g.number_of_edges())[torch.squeeze(g.edata['mask'])].to(self.device)
         # transform = RemoveSelfLoop()
-        #g.edata['similarity'][mask] = 0
+        # g.edata['similarity'][mask] = 0
+        self.A = torch.reshape(g.edata['similarity'], (
+        int(np.sqrt(g.edata['similarity'].size(0))), int(np.sqrt(g.edata['similarity'].size(0)))))
         # g = dgl.remove_edges(g, mask)
         return g
 
     def calc_dist(self, edges):
-        cosine = nn.CosineSimilarity(dim=1, eps=1e-6)
-        age_inter = torch.ones(edges.dst['Age'].size(0)) * 5
-        age_diff = abs(edges.dst['Age'] - edges.src['Age'])
-        age_sim = (age_diff <= age_inter).float()
-        #torch.unsqueeze(age_sim, dim=1).float()
-        sim = torch.relu(torch.unsqueeze(cosine(edges.dst['h'], edges.src['h']), dim=1).float())
-        #sim = torch.relu(cosine(torch.relu(edges.src['h']*self.param_vec), torch.relu(edges.dst['h']), dim =1))
-        #mask = sim <= 0.5
-        return {'similarity': sim}  # , 'mask': mask
+        self.Pi = edges.dst['h']
+        self.Pj = edges.src['h']
+        self.sim = torch.unsqueeze(self.hyper(self.Pi, self.Pj).float(), dim=1)  # 1-symmetric_mse_loss
+        self.elab = torch.unsqueeze(torch.logical_xor(edges.dst['Label'], edges.src['Label']), dim=1).long()
+        # sim = torch.relu(cosine(torch.relu(edges.src['h']*self.param_vec), torch.relu(edges.dst['h']), dim =1))
+        # mask = self.sim <= 0.5
+        return {'similarity': self.sim, 'label': self.elab}  # , 'mask': mask
 
     def representation_learning(self, encoded_feat, g):
-        self.feat_sim = self.project_sim(F.normalize(encoded_feat, dim=1))
+        self.feat_sim = self.project_sim(encoded_feat)
         g.ndata['h'] = self.feat_sim
         # Graph representation learning
         g = self.apply_edge_processing(g)
+
+        g = dgl.sampling.select_topk(g.to('cpu'), 90, 'similarity', output_device=self.device, ascending=False)
+        self.sim_smp = g.edata['similarity']
+        self.elab_smp = g.edata['label']
         e = g.edata['similarity'].expand(-1, encoded_feat.size(1))
-        self.A = torch.reshape(g.edata['similarity'], (400, 400))
         return g, e
 
     def forward_graph(self, encoded_feat, g, e):
@@ -218,7 +238,7 @@ class STOIC_V2(nn.Module):
         extracted_feat = encoded_feat.detach() #torch.tensor(np.array(pd.read_csv("extract_feat.csv"))[:,1:])
         g, e = self.representation_learning(extracted_feat, g)
         out = self.forward_graph(extracted_feat, g, e)
-        return out, self.A
+        return out, self.A, None
 
     def loss(self, pred, label):
         scores_severity = []
@@ -251,7 +271,7 @@ class STOIC_V2(nn.Module):
         loss_gnn = criterion(self.h_out.float(), label.long().argmax(dim=1))#torch.tensor(0)#
         loss_tr = criterion(self.score_int.float(), label.long().argmax(dim=1))
 
-        N = self.A.size(0)
+        """N = self.A.size(0)
 
         d = torch.sum(self.A, dim=1)
         D = torch.diag(1/torch.sqrt(d))
@@ -273,13 +293,33 @@ class STOIC_V2(nn.Module):
         lambda_3 = 0.1
         lambda_4 = 1
 
-        loss_grl = lambda_1*loss_sparsity + lambda_3*loss_smooth + lambda_2*loss_connectivity
-        comb_loss = {'smooth': loss_smooth,
-                     'sparsity': loss_sparsity,
+        loss_grl = lambda_1*loss_sparsity + lambda_3*loss_smooth + lambda_2*loss_connectivity"""
+        cosine_sim = nn.CosineEmbeddingLoss(margin=0)
+        L2_loss = nn.L1Loss()
+        contrast = L2_loss(self.sim, self.elab.float())  # cosine_sim(self.Pi, self.Pj, 2*self.elab-1)
+        loss_grl = contrast  # lambda_1*loss_sparsity #+ lambda_3*loss_smooth #+ lambda_2*loss_connectivity
+
+        contrast1 = L2_loss(self.sim_smp, self.elab_smp.float())
+        loss_connectivity = contrast1
+        """label = self.elab[:, 0]
+        V = label.size(0)
+        label_count = torch.bincount(label.long())
+        label_count = label_count[torch.nonzero(label_count, as_tuple=False)].squeeze()
+        cluster_sizes = torch.zeros(self.n_classes).long().to(self.device)
+        cluster_sizes[torch.unique(label)] = label_count
+        weight = (V - cluster_sizes).float() / V
+        weight *= (cluster_sizes > 0).float()
+        m = 1
+        dist_loss = torch.sum(((1-label)/cluster_sizes[0])* symmetric_mse_loss(self.Pi, self.Pj)+(label)*(1/cluster_sizes[1])*torch.maximum(torch.zeros_like(label), m-symmetric_mse_loss(self.Pi, self.Pj)))"""
+        criterion = nn.CosineEmbeddingLoss(margin=0.5)
+        label = 2 * label - 1
+        dist_loss = criterion(self.Pi, self.Pj, self.elab[:, 0])
+        comb_loss = {'smooth': torch.tensor(0),
+                     'sparsity': torch.tensor(0),
                      'connectivity': loss_connectivity,
                      'grl': loss_grl,
                      'transformer': loss_tr,
                      'gnn': loss_gnn,
                      'tr_acc': tr_acc}
-        return loss_tr + loss_gnn + lambda_4*loss_grl, comb_loss
+        return loss_tr + loss_gnn + loss_connectivity, comb_loss
 

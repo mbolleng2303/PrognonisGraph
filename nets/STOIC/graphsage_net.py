@@ -13,7 +13,7 @@ import dgl
 
 from layers.graphsage_layer import GraphSageLayer as GraphSageLayer
 from layers.mlp_readout_layer import MLPReadout
-from layers.preprocessing import Preprocessing
+#from layers.preprocessing import Preprocessing
 
 class GraphSageNet(nn.Module):
     """
@@ -52,7 +52,7 @@ class GraphSageNet(nn.Module):
         self.layers.append(GraphSageLayer(hidden_dim, out_dim, F.relu, dropout, aggregator_type, batch_norm, residual))
         self.MLP_layer = MLPReadout(out_dim, n_classes)
         if self.tresh['exp'] == 'SIMNet':
-            global current_split
+            """global current_split
             split_number = current_split
             #self.preprocessor = SIMNet()
             out_dir = 'C:/Users/maxim/PycharmProjects/PrognosisGraph/out/'
@@ -64,9 +64,10 @@ class GraphSageNet(nn.Module):
                 "epoch_" + str(last_epoch[split_number]))
             check_pt = torch.load(check_point_dir)
             self.preprocessor = SIMNet()
-            self.preprocessor.load_state_dict(check_pt)
+            self.preprocessor.load_state_dict(check_pt)"""
         elif tresh['exp'] != 'fully_connected':
-            self.preprocessor = Preprocessing(tresh=tresh, split_number=net_params["split_num"])
+            pass
+            #self.preprocessor = Preprocessing(tresh=tresh, split_number=net_params["split_num"])
 
     def forward(self, g):
         # input embedding
@@ -82,9 +83,9 @@ class GraphSageNet(nn.Module):
             #g = dgl.sampling.select_topk(g, 40, 'similarity')
             #e = g.edata['similarity'].float()
         elif self.tresh['exp'] != 'fully_connected':
-            g = self.preprocessor(g)
-            e = g.edata['similarity'].float()
-            #g = dgl.sampling.select_topk(g, 50, 'feat')
+            #g = self.preprocessor(g)
+            #e = g.edata['similarity'].float()
+            g = dgl.sampling.select_topk(g, 50, 'feat')
         else:
             g = dgl.sampling.sample_neighbors(g, list(range(0, g.ndata['feat'].size()[0])), 40)
             #e = g.edata['feat'].float()
@@ -106,7 +107,7 @@ class GraphSageNet(nn.Module):
         if self.layer_type == 'edge':
 
             for conv in self.layers:
-                h = conv(g, h, e)
+                h = conv(g, h)
 
             # output
             h_out = self.MLP_layer(h)
