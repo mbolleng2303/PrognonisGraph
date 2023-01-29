@@ -1,6 +1,7 @@
 """
     IMPORTING LIBS
 """
+import warnings
 
 import numpy as np
 import os
@@ -10,10 +11,10 @@ import glob
 import argparse, json
 import torch
 import torch.optim as optim
-import wandb
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
+import wandb
 
 
 class DotDict(dict):
@@ -33,7 +34,7 @@ from data.data import LoadData  # import dataset
     GPU Setup
 """
 
-
+warnings.filterwarnings("ignore")
 def gpu_setup(use_gpu, gpu_id):
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
@@ -52,8 +53,8 @@ def gpu_setup(use_gpu, gpu_id):
 """
 
 
-def view_model_param(MODEL_NAME, net_params):
-    model = gnn_model(MODEL_NAME, net_params)
+def view_model_param(MODEL_NAME, net_params, tresh):
+    model = gnn_model(MODEL_NAME, net_params, tresh)
     total_param = 0
     print("MODEL DETAILS:\n")
     # print(model)
@@ -61,7 +62,6 @@ def view_model_param(MODEL_NAME, net_params):
         # print(param.data.size())
         total_param += np.prod(list(param.data.size()))
     print('MODEL/Total parameters:', MODEL_NAME, total_param)
-
     return total_param
 
 
@@ -70,7 +70,7 @@ def view_model_param(MODEL_NAME, net_params):
 """
 
 
-def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
+def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, tresh):
     avg_test_acc = []
     avg_train_acc = []
     avg_val_acc = []
@@ -97,6 +97,7 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
 
     # At any point you can hit Ctrl + C to break out of training early.
     try:
+
         if params['cross_val']:
             for split_number in range(4):
                 t0_split = time.time()
@@ -106,8 +107,8 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                 random.seed(params['seed'])
                 np.random.seed(params['seed'])
                 torch.manual_seed(params['seed'])
-                """if device.type == 'cuda':
-                    torch.cuda.manual_seed(params['seed'])"""
+                if device == 'cuda':
+                    torch.cuda.manual_seed(params['seed'])
 
                 print("RUN NUMBER: ", split_number)
                 trainset, valset, testset = dataset.train[split_number], dataset.val[split_number], dataset.test[
@@ -117,7 +118,7 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                 print("Test Graphs: ", len(testset))
                 print("Number of Classes: ", net_params['n_classes'])
 
-                model = gnn_model(MODEL_NAME, net_params)
+                model = gnn_model(MODEL_NAME, net_params, tresh)
                 model = model.to(device)
                 optimizer = optim.Adam(model.parameters(), lr=params['init_lr'], weight_decay=params['weight_decay'])
                 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min',
@@ -132,10 +133,8 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                 drop_last = True if MODEL_NAME == 'DiffPool' else False
                 # drop_last = False
 
-
-
                 # import train functions for all other GCNs
-                from train.train_PreGraph import train_epoch_sparse as train_epoch, \
+                from train.train_Transformers import train_epoch_sparse as train_epoch, \
                     evaluate_network_sparse as evaluate_network
 
                 train_loader = DataLoader(trainset, batch_size=params['batch_size'], shuffle=True, drop_last=drop_last,
@@ -151,7 +150,7 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                         t.set_description('Epoch %d' % epoch)
 
                         start = time.time()
-                        epoch_train_loss, epoch_train_acc, optimizer = train_epoch(model, optimizer, device,
+                        epoch_train_loss, epoch_train_acc, optimizer= train_epoch(model, optimizer, device,
                                                                                    train_loader, epoch)
 
                         epoch_val_loss, epoch_val_acc = evaluate_network(model, device, val_loader, epoch)
@@ -168,8 +167,8 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                                          'train_loss': epoch_train_loss,
                                          'test_acc': epoch_test_acc,
                                          'test_loss': epoch_test_loss,
-                                         'epoch': epoch,
-                                         'test': epoch_test_acc}
+                                         'epoch': epoch}
+
                         if epoch == 0:
                             no_change = 0
                             save = True
@@ -179,34 +178,25 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                                           'train_loss': epoch_train_loss,
                                           'test_acc': epoch_test_acc,
                                           'test_loss': epoch_test_loss,
-                                          'epoch': epoch,
-                                          'test': epoch_test_acc}
+                                          'epoch': epoch}
                         else:
-                            if current_epoch['val_loss'] >= best_epoch['val_loss']:
+                            if not (current_epoch['val_acc'] >= best_epoch['val_acc']):
                                 no_change += 1
                                 save = False
                             else:
                                 best_epoch = current_epoch
                                 no_change = 0
                                 save = True
-                        """wandb.define_metric('val_acc', summary="mean")
+                        wandb.define_metric('val_acc', summary="mean")
                         wandb.define_metric('val_loss', summary="mean")
                         wandb.define_metric('train_acc', summary="mean")
                         wandb.define_metric('train_loss', summary="mean")
-                        wandb.define_metric('test_acc', summary="mean")"""
+                        wandb.define_metric('test_acc', summary="mean")
                         wandb.log(best_epoch, step=epoch)
-                        """
-                        try :
-                            if epoch_val_loss < epoch_val_losses[-2]:
-                                nbr_nochange = 0
-                                save = True
-                            else :
-                                nbr_nochange+=1
-                                save = True
-                        except IndexError:
-                            nbr_nochange = 0
-                            save = True
-                        """
+                        """wandb.init(project='PrognosisGraph', group = 'cross_val' , job_type="fold_".format(str(split_number)))
+                        wandb.log(best_epoch, step = epoch)
+                        wandb.finish()"""
+                        #wandb.watch(model)
                         writer.add_scalar('train/_loss', epoch_train_loss, epoch)
                         writer.add_scalar('val/_loss', epoch_val_loss, epoch)
                         writer.add_scalar('train/_acc', epoch_train_acc, epoch)
@@ -214,9 +204,10 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                         writer.add_scalar('test/_acc', epoch_test_acc, epoch)
                         writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], epoch)
 
-                        epoch_train_acc = epoch_train_acc
-                        epoch_test_acc = epoch_test_acc
-                        epoch_val_acc = epoch_val_acc
+                        epoch_train_acc = 100. * epoch_train_acc
+                        epoch_test_acc = 100. * epoch_test_acc
+                        epoch_val_acc = 100. * epoch_val_acc
+
                         t.set_postfix(time=time.time() - start, lr=optimizer.param_groups[0]['lr'],
                                       train_loss=epoch_train_loss, val_loss=epoch_val_loss,
                                       train_acc=epoch_train_acc, val_acc=epoch_val_acc,
@@ -236,10 +227,10 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                                 epoch_nb = file.split('_')[-1]
                                 epoch_nb = int(epoch_nb.split('.')[0])
                                 if epoch_nb < epoch - 1:
-                                     os.remove(file)
+                                    os.remove(file)
 
                         scheduler.step(epoch_val_loss)
-                        if no_change > 2*params['lr_schedule_patience']:
+                        if no_change > 2*params['lr_schedule_patience']+3:
                             print('Best epoch since since {} epochs '.format(str(no_change)))
                             break
                         if optimizer.param_groups[0]['lr'] <= params['min_lr']:
@@ -258,13 +249,14 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                 """_, test_acc = evaluate_network(model, device, test_loader, epoch)
                 _, train_acc = evaluate_network(model, device, train_loader, epoch)
                 _, val_acc = evaluate_network(model, device, val_loader, epoch)"""
+
                 avg_test_acc.append(best_epoch['test_acc'])
                 avg_train_acc.append(best_epoch['train_acc'])
                 avg_val_acc.append(best_epoch['val_acc'])
                 avg_val_loss.append(best_epoch['val_loss'])
                 avg_epochs.append(epoch)
 
-                """plt.figure()
+                '''plt.figure()
                 plt.plot(epoch_train_accs)
                 plt.plot(epoch_val_accs)
                 plt.legend(['train', 'val'])
@@ -279,11 +271,12 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                 plt.ylabel('loss')
                 plt.xlabel('epoch')
                 plt.title('Training summary fold '.format(split_number))
-                plt.savefig(log_dir + '/loss')"""
+                plt.savefig(log_dir + '/loss')'''
 
-                print("Test Accuracy [BEST VAL EPOCH]: {:.4f}".format(best_epoch['test_acc']*100))
-                print("Val Accuracy [BEST VAL EPOCH]: {:.4f}".format(best_epoch['val_acc']*100))
-                print("Train Accuracy [BEST VAL EPOCH]: {:.4f}".format(best_epoch['train_acc']*100))
+                print("Test Accuracy [BEST EPOCH]: {:.4f}".format(best_epoch['test_acc'] * 100))
+                print("Val Accuracy [BEST EPOCH]: {:.4f}".format(best_epoch['val_acc'] * 100))
+                print("Train Accuracy [LAST EPOCH]: {:.4f}".format(best_epoch['train_acc'] * 100))
+
         else:
             split_number = params['split_num']
             t0_split = time.time()
@@ -304,7 +297,7 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
             print("Test Graphs: ", len(testset))
             print("Number of Classes: ", net_params['n_classes'])
 
-            model = gnn_model(MODEL_NAME, net_params)
+            model = gnn_model(MODEL_NAME, net_params, tresh)
             model = model.to(device)
             optimizer = optim.Adam(model.parameters(), lr=params['init_lr'], weight_decay=params['weight_decay'])
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min',
@@ -312,15 +305,15 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                                                              patience=params['lr_schedule_patience'],
                                                              verbose=True, min_lr=params['min_lr'])
 
-            epoch_train_losses, epoch_val_losses = [], []
-            epoch_train_accs, epoch_val_accs = [], []
+            epoch_tr_losses, epoch_gnn_losses = [], []
+            epoch_tr_accs, epoch_gnn_accs = [], []
 
             # batching exception for Diffpool
             drop_last = True if MODEL_NAME == 'DiffPool' else False
             # drop_last = False
 
             # import train functions for all other GCNs
-            from train.train_PreGraph import train_epoch_sparse as train_epoch, \
+            from train.train_Transformers import train_epoch_sparse as train_epoch, \
                 evaluate_network_sparse as evaluate_network
 
             train_loader = DataLoader(trainset, batch_size=params['batch_size'], shuffle=True, drop_last=drop_last,
@@ -336,17 +329,13 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                     t.set_description('Epoch %d' % epoch)
 
                     start = time.time()
-                    epoch_train_loss, epoch_train_acc, optimizer = train_epoch(model, optimizer, device,
-                                                                               train_loader, epoch)
+                    epoch_train_loss, epoch_train_acc, optimizer = train_epoch(model,optimizer,device,train_loader,epoch)
 
                     epoch_val_loss, epoch_val_acc = evaluate_network(model, device, val_loader, epoch)
 
                     epoch_test_loss, epoch_test_acc = evaluate_network(model, device, test_loader, epoch)
 
-                    epoch_train_losses.append(epoch_train_loss)
-                    epoch_val_losses.append(epoch_val_loss)
-                    epoch_train_accs.append(epoch_train_acc)
-                    epoch_val_accs.append(epoch_val_acc)
+
                     current_epoch = {'val_acc': epoch_val_acc,
                                      'val_loss': epoch_val_loss,
                                      'train_acc': epoch_train_acc,
@@ -354,20 +343,14 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                                      'test_acc': epoch_test_acc,
                                      'test_loss': epoch_test_loss,
                                      'epoch': epoch,
-                                     'test': epoch_test_acc}
+                                     'test': epoch_test_acc,
+                                     }
                     if epoch == 0:
                         no_change = 0
                         save = True
-                        best_epoch = {'val_acc': epoch_val_acc,
-                                      'val_loss': epoch_val_loss,
-                                      'train_acc': epoch_train_acc,
-                                      'train_loss': epoch_train_loss,
-                                      'test_acc': epoch_test_acc,
-                                      'test_loss': epoch_test_loss,
-                                      'epoch': epoch,
-                                      'test': epoch_test_acc}
+                        best_epoch = current_epoch
                     else:
-                        if current_epoch['val_loss'] >= best_epoch['val_loss']:
+                        if not (current_epoch['val_acc'] >= best_epoch['val_acc']):
                             no_change += 1
                             save = False
                         else:
@@ -375,20 +358,9 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                             no_change = 0
                             save = True
 
-                    """
-                    try :
-                        if epoch_val_loss < epoch_val_losses[-2]:
-                            nbr_nochange = 0
-                            save = True
-                        else :
-                            nbr_nochange+=1
-                            save = True
-                    except IndexError:
-                        nbr_nochange = 0
-                        save = True
-                    """
                     wandb.log(current_epoch)
-                    wandb.watch(model)
+                    #wandb.watch(model)
+
                     writer.add_scalar('train/_loss', epoch_train_loss, epoch)
                     writer.add_scalar('val/_loss', epoch_val_loss, epoch)
                     writer.add_scalar('train/_acc', epoch_train_acc, epoch)
@@ -396,9 +368,10 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                     writer.add_scalar('test/_acc', epoch_test_acc, epoch)
                     writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], epoch)
 
-                    epoch_train_acc = epoch_train_acc
-                    epoch_test_acc = epoch_test_acc
-                    epoch_val_acc = epoch_val_acc
+                    epoch_train_acc = 100. * epoch_train_acc
+                    epoch_test_acc = 100. * epoch_test_acc
+                    epoch_val_acc = 100. * epoch_val_acc
+
                     t.set_postfix(time=time.time() - start, lr=optimizer.param_groups[0]['lr'],
                                   train_loss=epoch_train_loss, val_loss=epoch_val_loss,
                                   train_acc=epoch_train_acc, val_acc=epoch_val_acc,
@@ -421,9 +394,9 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                                 os.remove(file)
 
                     scheduler.step(epoch_val_loss)
-                    if no_change > 2 * params['lr_schedule_patience']:
+                    """if no_change > 2*params['lr_schedule_patience']+3:
                         print('Best epoch since since {} epochs '.format(str(no_change)))
-                        break
+                        break"""
                     if optimizer.param_groups[0]['lr'] <= params['min_lr']:
                         print('LR min')
                         break
@@ -437,35 +410,15 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                                 params['max_time'] / 10))
                         break
 
-            """_, test_acc = evaluate_network(model, device, test_loader, epoch)
-            _, train_acc = evaluate_network(model, device, train_loader, epoch)
-            _, val_acc = evaluate_network(model, device, val_loader, epoch)"""
             avg_test_acc.append(best_epoch['test_acc'])
             avg_train_acc.append(best_epoch['train_acc'])
             avg_val_acc.append(best_epoch['val_acc'])
             avg_epochs.append(epoch)
 
-            """plt.figure()
-            plt.plot(epoch_train_accs)
-            plt.plot(epoch_val_accs)
-            plt.legend(['train', 'val'])
-            plt.ylabel('acc')
-            plt.xlabel('epoch')
-            plt.title('Training summary fold '.format(split_number))
-            plt.savefig(log_dir + '/acc')
-            plt.figure()
-            plt.plot(epoch_train_losses)
-            plt.plot(epoch_val_losses)
-            plt.legend(['train', 'val'])
-            plt.ylabel('loss')
-            plt.xlabel('epoch')
-            plt.title('Training summary fold '.format(split_number))
-            plt.savefig(log_dir + '/loss')"""
 
-            print("Test Accuracy [BEST VAL EPOCH]: {:.4f}".format(best_epoch['test_acc'] * 100))
-            print("Val Accuracy [BEST VAL EPOCH]: {:.4f}".format(best_epoch['val_acc'] * 100))
-            print("Train Accuracy [BEST VAL EPOCH]: {:.4f}".format(best_epoch['train_acc'] * 100))
-
+            print("Test Accuracy [BEST EPOCH]: {:.4f}".format(best_epoch['test_acc'] * 100))
+            print("Val Accuracy [BEST EPOCH]: {:.4f}".format(best_epoch['val_acc'] * 100))
+            print("Train Accuracy [LAST EPOCH]: {:.4f}".format(best_epoch['train_acc'] * 100))
 
     except KeyboardInterrupt:
         print('-' * 89)
@@ -498,14 +451,18 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs):
                         np.mean(np.array(avg_train_acc)) * 100, np.std(avg_train_acc) * 100,
                         np.mean(np.array(avg_epochs)),
                         (time.time() - t0) / 3600, np.mean(per_epoch_time), avg_test_acc, avg_train_acc))
+
     return avg_val_acc, avg_train_acc, avg_val_loss, avg_test_acc
+
+
 def main():
     """
         USER CONTROLS
     """
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default = os.getcwd()+ "/configs/PreGraph_pipeline.json", help="Please give a config.json file with training/model/data/param details")
+    parser.add_argument('--config', default=os.getcwd() + "/configs/SBU_img_Transformer.json",
+                        help="Please give a config.json file with training/model/data/param details")
     parser.add_argument('--gpu_id', help="Please give a value for gpu id")
     parser.add_argument('--model', help="Please give a value for model name")
     parser.add_argument('--dataset', help="Please give a value for dataset name")
@@ -520,13 +477,16 @@ def main():
     parser.add_argument('--weight_decay', help="Please give a value for weight_decay")
     parser.add_argument('--print_epoch_interval', help="Please give a value for print_epoch_interval")
     parser.add_argument('--L', help="Please give a value for L")
-    parser.add_argument('--hidden_dim', help="Please give a value for hidden_dim")
-    parser.add_argument('--out_dim', help="Please give a value for out_dim")
+    parser.add_argument('--feature_dim', help="Please give a value for feature_dim")
+    parser.add_argument('--similarity_dim', help="Please give a value for feature_dim")
+    parser.add_argument('--mlp_dim', help="Please give a value for out_dim")
     parser.add_argument('--residual', help="Please give a value for residual")
     parser.add_argument('--edge_feat', help="Please give a value for edge_feat")
     parser.add_argument('--readout', help="Please give a value for readout")
     parser.add_argument('--kernel', help="Please give a value for kernel")
     parser.add_argument('--n_heads', help="Please give a value for n_heads")
+    parser.add_argument('--n_transformers', help="Please give a value for n_heads")
+    parser.add_argument('--cls_token', help="Please give a value for cls_token")
     parser.add_argument('--gated', help="Please give a value for gated")
     parser.add_argument('--in_feat_dropout', help="Please give a value for in_feat_dropout")
     parser.add_argument('--dropout', help="Please give a value for dropout")
@@ -546,6 +506,15 @@ def main():
     parser.add_argument('--cross_val', help="If you want to make cross validation")
     parser.add_argument('--split_num', help="To select the fold for training")
     parser.add_argument('--threshold_value', help="To select the threshold to apply on edge")
+    parser.add_argument('--similarity', help="To select the edge similarity representation")
+    parser.add_argument('--type_of_thresh', help="To select of to apply threshold")
+    parser.add_argument('--lambda1', help="Please give a value for lambda")
+    parser.add_argument('--lambda2', help="Please give a value for lambda")
+    parser.add_argument('--lambda3', help="Please give a value for lambda")
+    parser.add_argument('--lambda4', help="Please give a value for lambda")
+    parser.add_argument('--lambda5', help="Please give a value for lambda")
+    parser.add_argument('--lambda6', help="Please give a value for lambda")
+
     args = parser.parse_args()
     with open(args.config) as f:
         config = json.load(f)
@@ -564,7 +533,7 @@ def main():
         DATASET_NAME = args.dataset
     else:
         DATASET_NAME = config['dataset']
-    #dataset = LoadData(DATASET_NAME)
+    # dataset = LoadData(DATASET_NAME)
     if args.out_dir is not None:
         out_dir = args.out_dir
     else:
@@ -572,7 +541,11 @@ def main():
     # parameters
     params = config['params']
     if args.cross_val is not None:
-        params['cross_val'] = bool(args.args.cross_val)
+        params['cross_val'] = bool(args.cross_val)
+    if args.similarity is not None:
+        params['similarity'] = args.similarity
+    if args.type_of_thresh is not None:
+        params['type_of_thresh'] = str(args.type_of_thresh)
     if args.threshold_value is not None:
         params['threshold_value'] = float(args.threshold_value)
     if args.split_num is not None:
@@ -604,20 +577,26 @@ def main():
     net_params['batch_size'] = params['batch_size']
     if args.L is not None:
         net_params['L'] = int(args.L)
-    if args.hidden_dim is not None:
-        net_params['hidden_dim'] = int(args.hidden_dim)
-    if args.out_dim is not None:
-        net_params['out_dim'] = int(args.out_dim)
+    if args.feature_dim is not None:
+        net_params['feature_dim'] = int(args.feature_dim)
+    if args.similarity_dim is not None:
+        net_params['similarity_dim'] = int(args.similarity_dim)
+    if args.mlp_dim is not None:
+        net_params['mlp_dim'] = int(args.mlp_dim)
     if args.residual is not None:
         net_params['residual'] = True if args.residual == 'True' else False
     if args.edge_feat is not None:
         net_params['edge_feat'] = True if args.edge_feat == 'True' else False
+    if args.cls_token is not None:
+        net_params['cls_token'] = True if args.cls_token == 'True' else False
     if args.readout is not None:
         net_params['readout'] = args.readout
     if args.kernel is not None:
         net_params['kernel'] = int(args.kernel)
     if args.n_heads is not None:
         net_params['n_heads'] = int(args.n_heads)
+    if args.n_transformers is not None:
+        net_params['n_transformers'] = int(args.n_transformers)
     if args.gated is not None:
         net_params['gated'] = True if args.gated == 'True' else False
     if args.in_feat_dropout is not None:
@@ -647,7 +626,20 @@ def main():
     if args.self_loop is not None:
         net_params['self_loop'] = True if args.self_loop == 'True' else False
     if args.pos_enc_dim is not None:
-        net_params['pos_enc_dim'] = int(args.pos_enc_dim)
+        net_params['pos_enc_dim'] = float(args.pos_enc_dim)
+    if args.lambda1 is not None:
+        net_params['lambda1'] = float(args.lambda1)
+    if args.lambda2 is not None:
+        net_params['lambda2'] = float(args.lambda2)
+    if args.lambda3 is not None:
+        net_params['lambda3'] = float(args.lambda3)
+    if args.lambda4 is not None:
+        net_params['lambda4'] = float(args.lambda4)
+    if args.lambda5 is not None:
+        net_params['lambda5'] = float(args.lambda5)
+    if args.lambda6 is not None:
+        net_params['lambda6'] = float(args.lambda6)
+
 
     net_params['in_dim'] = 1024  # node_dim (feat is an integer)
     net_params['n_classes'] = 2
@@ -668,23 +660,23 @@ def main():
     if not os.path.exists(out_dir + 'configs'):
         os.makedirs(out_dir + 'configs')
 
-
     def Merge(dict1, dict2):
         res = {**dict1, **dict2}
         return res
 
     params = Merge(params, net_params)
+    os.environ["WANDB_API_KEY"] = 'f6a1a7a209231118c99d5b6078fc26a2941ce3c3'
+    wandb.login()
 
-    """os.environ["WANDB_API_KEY"] = 'f6a1a7a209231118c99d5b6078fc26a2941ce3c3'
-    wandb.login()"""
-
-    wandb.init(project='Learn_cos', config=params)#, group = 'cross_val' , job_type="optimize"
+    wandb.init(config=params, allow_val_change=True) #  , group = 'cross_val' , job_type="optimize"
     net_params = wandb.config
     params = wandb.config
-    net_params['total_param'] = view_model_param(MODEL_NAME, net_params)
-    val_acc, train_acc, val_loss, test_acc = train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs)
+    tresh=None
+    net_params['total_param'] = view_model_param(MODEL_NAME, net_params, tresh)
+    val_acc, train_acc, val_loss, test_acc = train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, tresh)
     wandb.log(dict({'avg_val_acc': np.mean(val_acc), 'avg_train_acc': np.mean(train_acc),
                     "avg_val_loss": np.mean(val_loss), "avg_test_acc": np.mean(test_acc)}))
+
 
 
 main()

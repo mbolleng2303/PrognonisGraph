@@ -1,0 +1,25 @@
+{
+    "gpu": {
+        "use": false,
+        "id": 0
+    },
+    "model": "img_Transformer",
+    "dataset": "SBU",
+    "out_dir": "./out/",
+    "params": {
+        "seed": 41,
+        "epochs": 1000,
+        "batch_size": 1,
+        "init_lr": 0.0005,
+        "lr_reduce_factor": 0.5,
+        "lr_schedule_patience": 5,
+        "min_lr": 1e-7,
+        "weight_decay": 0.000001,
+        "print_epoch_interval": 5,
+        "max_time": 12000,
+        "cross_val": false,
+        "split_num": 1
+    },
+    "net_params": {
+    }
+}

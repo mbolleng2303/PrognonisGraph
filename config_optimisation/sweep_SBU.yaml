@@ -3,7 +3,7 @@ project : SBU
 name : Optimisation
 method: bayes
 command:
-  - C:\Users\maxim\PycharmProjects\PrognosisGraph\venv\Scripts\python.exe
+  - /home/maxime/anaconda3/envs/graph/bin/python3.9
   - ${program}
   - ${args}
 metric:
@@ -11,16 +11,22 @@ metric:
   name: avg_val_acc
 parameters:
   L:
-    values: [2, 3, 4, 5, 6]
-  init_lr:
-    value: 0.001
-  weight_decay:
-    values: [0.01, 0.05, 0.1, 0.15]
-  feature_dim:
-    values: [128, 256, 512, 1024]
-  lr_schedule_patience:
     values: [3, 5, 7]
-  in_feat_dropout:
+  init_lr:
+    values: [0.001, 0.01, 0.0005, 0.0001]
+  weight_decay:
+    values: [0, 0.01, 0.05, 0.1, 0.2]
+  feature_dim:
+    values: [128, 256, 512]
+  lr_schedule_patience:
+    value : 5
+  edge_feat:
+    values: [true, false]
+  lambda1:
     distribution: uniform
-    min: 1.0
-    max: 250
+    min: 0.0
+    max: 10.0
+  lambda6:
+    distribution: uniform
+    min: 0.0
+    max: 1.0

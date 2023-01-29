@@ -10,7 +10,6 @@ import glob
 import argparse, json
 import torch
 import torch.optim as optim
-from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
@@ -26,7 +25,7 @@ class DotDict(dict):
     IMPORTING CUSTOM MODULES/METHODS
 """
 
-from nets.STOIC.load_net import gnn_model  # import GNNs
+from nets.load_net import gnn_model  # import GNNs
 from data.data import LoadData  # import dataset
 
 """
@@ -70,6 +69,9 @@ def view_model_param(MODEL_NAME, net_params, tresh):
 
 
 def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, tresh):
+
+
+
     avg_test_acc = []
     avg_train_acc = []
     avg_val_acc = []
@@ -166,8 +168,8 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, tresh
                                          'train_loss': epoch_train_loss,
                                          'test_acc': epoch_test_acc,
                                          'test_loss': epoch_test_loss,
-                                         'epoch': epoch,
-                                         'test': epoch_test_acc}
+                                         'epoch': epoch}
+
                         if epoch == 0:
                             no_change = 0
                             save = True
@@ -177,10 +179,9 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, tresh
                                           'train_loss': epoch_train_loss,
                                           'test_acc': epoch_test_acc,
                                           'test_loss': epoch_test_loss,
-                                          'epoch': epoch,
-                                          'test': epoch_test_acc}
+                                          'epoch': epoch}
                         else:
-                            if not (current_epoch['val_acc'] > best_epoch['val_acc']):
+                            if not (current_epoch['val_loss'] <= best_epoch['val_loss']):
                                 no_change += 1
                                 save = False
                             else:
@@ -221,7 +222,7 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, tresh
                                      os.remove(file)
 
                         scheduler.step(epoch_val_loss)
-                        if no_change > 2*params['lr_schedule_patience']:
+                        if no_change > 3*params['lr_schedule_patience']:
                             print('Best epoch since since {} epochs '.format(str(no_change)))
                             break
                         if optimizer.param_groups[0]['lr'] <= params['min_lr']:
@@ -355,7 +356,6 @@ def train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, tresh
                             best_epoch = current_epoch
                             no_change = 0
                             save = True
-
                     writer.add_scalar('train/_loss', epoch_train_loss, epoch)
                     writer.add_scalar('val/_loss', epoch_val_loss, epoch)
                     writer.add_scalar('train/_acc', epoch_train_acc, epoch)
@@ -514,6 +514,8 @@ def main():
     parser.add_argument('--pos_enc_dim', help="Please give a value for pos_enc_dim")
     parser.add_argument('--cross_val', help="If you want to make cross validation")
     parser.add_argument('--split_num', help="To select the fold for training")
+    parser.add_argument('--threshold_value', help="To select the threshold to apply on edge")
+    parser.add_argument('--similarity', help="To select the edge similarity representation")
     args = parser.parse_args()
     with open(args.config) as f:
         config = json.load(f)
@@ -539,6 +541,10 @@ def main():
         out_dir = config['out_dir']
     # parameters
     params = config['params']
+    if args.similarity is not None:
+        params['similarity'] =str(args.args.similarity)
+    if args.cross_val is not None:
+        params['threshold_value'] = float(args.args.threshold_value)
     if args.cross_val is not None:
         params['cross_val'] = bool(args.args.cross_val)
     if args.split_num is not None:
@@ -671,41 +677,45 @@ def main():
     np.save(experiment_path + 'resolution', x)""
     plt.show()"""
 
-    list_of_rate = np.arange(0, 1.01, 0.1)
-    list_of_exp = ['rate_1', 'rate_0', 'rate_group', 'rate_global']#['rate_global']  # ['custom']#['rate_1', 'rate_0', 'rate_group', 'rate_global']
+    rate = params['threshold_value']
+    exp = params['similarity']
+    edge_app = params['type_of_thresh']
     for exp in list_of_exp:
         # experiment_name = 'positive_' + exp
+
         val = []
         train = []
         x = []
         for rate in list_of_rate:
             tresh = {'value': rate,
-                     'exp': exp}
+                     'exp': exp,
+                     'type': edge_app}
             net_params['total_param'] = view_model_param(MODEL_NAME, net_params, tresh)
+
             val_acc, train_acc = train_val_pipeline(MODEL_NAME, DATASET_NAME, params, net_params, dirs, tresh)
             val.append(val_acc)
             train.append(train_acc)
             x.append(tresh['value'])
-        x = np.array(x)
+        """x = np.array(x)
         val = np.array(val)
         mean_val = np.mean(val, axis=1)
         std_val = np.std(val, axis=1)
         train = np.array(train)
         mean_train = np.mean(train, axis=1)
         std_train = np.std(train, axis=1)
-        # plt.figure()
+        plt.figure()
         plt.plot(x, mean_val)  # , 'k', color='#CC4F1B')
         plt.fill_between(x, mean_val - std_val, mean_val + std_val,
                          alpha=0.5)  # , edgecolor='#CC4F1B', facecolor='#FF9848')
         plt.plot(x, mean_train, 'k', color='#1B2ACC')
-        plt.fill_between(x, mean_train - std_train, mean_train - std_train, alpha=0.5, edgecolor='#1B2ACC', facecolor='#089FFF')
+        plt.fill_between(x, mean_train - std_train, mean_train + std_train, alpha=0.5, edgecolor='#1B2ACC', facecolor='#089FFF')
         plt.legend(['validation', 'training'])
         plt.title('AUC score in function of ' + exp)
-        plt.xlabel('positive_rate of neigboors')
+        plt.xlabel('treshold for cosine similarity')
         plt.ylabel('AUC val score')
         plt.savefig(experiment_path + exp + '.png')
         np.save(experiment_path + exp, (val, train))
-        np.save(experiment_path + 'resolution', x)
+        np.save(experiment_path + 'resolution', x)"""
 
 
 main()

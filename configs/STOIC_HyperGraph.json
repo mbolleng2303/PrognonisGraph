@@ -4,27 +4,27 @@
         "id": 0
     },
 
-    "model": "STOIC_V2",
+    "model": "STOIC_Hyper",
     "dataset": "STOIC",
 
-    "out_dir": "C:/Users/maxim/PycharmProjects/PrognosisGraph/out/",
+    "out_dir": "./out/",
 
     "params": {
         "seed": 41,
         "epochs": 1000,
-        "batch_size": 4,
-        "init_lr": 0.001,
+        "batch_size": 1,
+        "init_lr": 0.005,
         "lr_reduce_factor": 0.5,
-        "lr_schedule_patience": 5,
+        "lr_schedule_patience": 21,
         "min_lr": 5e-7,
-        "weight_decay": 0.0,
+        "weight_decay": 0.0005,
         "print_epoch_interval": 5,
         "max_time": 12,
-        "cross_val": false,
+        "cross_val": true,
         "split_num": 0
     },
     "net_params": {
-        "L": 3,
+        "L":3,
         "n_transformers" : 4,
         "n_heads" : 4,
         "cls_token": true,
@@ -32,10 +32,10 @@
         "similarity_dim": 256,
         "mlp_dim": 256,
         "residual": true,
-        "in_feat_dropout": 0.5,
-        "dropout": 0,
+        "in_feat_dropout": 0.3744,
+        "dropout": 0.2755,
         "batch_norm": true,
         "sage_aggregator": "mean",
-        "edge_feat": true
+        "edge_feat": false
     }
 }

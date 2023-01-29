@@ -1,15 +1,6 @@
-import os
-import pickle
-import time
-
-from sklearn.preprocessing import StandardScaler
-from torch.utils.data import DataLoader, Dataset
-from sklearn.model_selection import StratifiedKFold, train_test_split
-import numpy as np
 import pandas as pd
-import torch
-from scipy import sparse as sp
-import dgl
+
+
 def get_vertices(a):
     edges = []
     feat = []
@@ -91,7 +82,6 @@ import argparse, json
 import torch
 
 from sklearn.metrics import roc_curve, auc
-from torch.utils.data import DataLoader
 
 from tensorboardX import SummaryWriter
 
@@ -106,7 +96,7 @@ class DotDict(dict):
     IMPORTING CUSTOM MODULES/METHODS
 """
 
-from nets.STOIC.load_net import gnn_model  # import GNNs
+from nets.load_net import gnn_model  # import GNNs
 from data.data import LoadData  # import dataset
 
 """

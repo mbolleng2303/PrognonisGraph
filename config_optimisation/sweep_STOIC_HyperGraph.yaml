@@ -1,0 +1,31 @@
+program: main_STOIC_HyperGraph.py
+project : PrognosisGraph_Hyper
+name : Optimisation
+method: bayes
+command:
+  - /home/maxime/anaconda3/envs/graph/bin/python3.9
+  - ${program}
+  - ${args}
+metric:
+  goal: maximize
+  name: avg_val_acc
+parameters:
+  L:
+    values: [2, 3, 4]
+  init_lr:
+    values: [0.01, 0.005, 0.001, 0.0005, 0.0001]
+  weight_decay:
+    values: [0.1,0.005, 0.001, 0.0005, 0.0001, 0]
+  feature_dim:
+    values: [128, 256, 512, 1024]
+  lr_schedule_patience:
+    values: [3, 5, 7, 9, 11, 13, 15, 17, 19, 21]
+  dropout:
+    distribution: uniform
+    min: 0.00
+    max: 1.0
+  in_feat_dropout:
+    distribution: uniform
+    min: 0.00
+    max: 1.0
+
