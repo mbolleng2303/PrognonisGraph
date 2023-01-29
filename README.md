@@ -14,8 +14,8 @@ How to run the code?
 4) You can create your own networks and layers following the same structure as in the nets and layers folder
 5) To search for hyperparameters, you will need to create a WandB account on the site: https://wandb.ai/ 
 5.1) in the config_optimization folder you will see how to set the hyperparameters search
-5.3) Set os.environ["WANDB_API_KEY"] = [your API key]
-5.2) run in the temrinal :  wandb sweep config_optimisation/sweep_[name].yaml 
+5.2) Set os.environ["WANDB_API_KEY"] = [your API key]
+5.3) run in the temrinal :  wandb sweep config_optimisation/sweep_[name].yaml 
   
 6) all the performance, log, checkpoint are save in the out folder to keep trace on your experiments
 7) all the experiment tracking is also save on your wandb account
